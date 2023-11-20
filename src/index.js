@@ -1,53 +1,74 @@
-const db = require('./db-connector')
-const {parseStateData, encodeContractId, parseAccountSigners} = require('./contract-state-parser')
-const {DexTradesAggregator} = require('./dex-trades-aggregator')
-const {Asset} = require('stellar-base')
+const DbConnector = require('./db-connector')
+const { parseStateData, encodeContractId, parseAccountSigners } = require('./contract-state-parser')
+const { DexTradesAggregator } = require('./dex-trades-aggregator')
+const { Asset } = require('stellar-base')
+
+/**
+ * @typedef {Object} TradeAggregationParams
+ * @property {string} contract - The contract identifier.
+ * @property {string} baseAsset - The base asset symbol.
+ * @property {string[]} assets - An array of asset symbols to aggregate trades for.
+ * @property {number} decimals - The number of decimals to consider for price aggregation.
+ * @property {number} from - The starting point (timestamp/block number) to fetch trades from.
+ * @property {number} period - The period over which to aggregate trades.
+ */
+
+/**
+ * @typedef {Object} AggregatedTradeResult
+ * @property {Object} prices - The aggregated prices.
+ * @property {string} admin - The admin address.
+ * @property {number|string} lastTimestamp - The last timestamp processed.
+ */
+
+/**
+ * @typedef {Object} AccountProps
+ * @property {bigint} sequence - The sequence number of the account.
+ * @property {number[]} thresholds - The thresholds array for the account.
+ * @property {Signer[]} signers - An array of signers associated with the account.
+ */
+
+/**
+ * @typedef {Object} Signer
+ * @property {string} address - The signer's address.
+ * @property {number} weight - The signer's weight.
+ */
 
 /**
  * Initialize StellarCore database connection
  * @param {String|{user: String, database: String, password: String, host: String, [port]: Number}} dbConnectionProperties
+ * @returns {{
+ *   aggregateTrades: (params: TradeAggregationParams) => Promise<AggregatedTradeResult>,
+ *   retrieveAccountProps: (account: string) => Promise<AccountProps>
+ *   close: () => Promise<void>
+ * }}
  */
 function init(dbConnectionProperties) {
-    db.init(dbConnectionProperties)
-}
-
-/**
- * Aggregate trades and prices
- * @param {String} contract - Contract Id
- * @param {{type: number, code: string}} baseAsset - Base asset
- * @param {{type: number, code: string}[]} assets - Tracked assets
- * @param {Number} decimals - Price precision
- * @param {Number} from - Analyzed period timestamp (Unix timestamp)
- * @param {Number} period - Timeframe length, in second
- * @return {Promise<{prices: BigInt[], admin: String, lastTimestamp: BigInt}>}
- */
-async function aggregateTrades({contract, baseAsset, assets, decimals, from, period}) {
-    const tradesAggregator = new DexTradesAggregator(convertToStellarAsset(baseAsset), assets.map(a => convertToStellarAsset(a)))
-    const contractData = await db.fetchContractState(encodeContractId(contract))
-    //retrieve previous prices from contract state
-    const parsedContractState = parseStateData(contractData)
-    //fetch and process tx results
-    await db.fetchProcessTxResults(from, from + period, r => tradesAggregator.processTxResult(r))
-    //aggregate prices and merge with previously set prices
-    const prices = tradesAggregator.aggregatePrices(parsedContractState.prices, BigInt(decimals))
+    const db = new DbConnector(dbConnectionProperties)
     return {
-        prices,
-        admin: parsedContractState.admin,
-        lastTimestamp: parsedContractState.lastTimestamp
+        aggregateTrades: async ({ contract, baseAsset, assets, decimals, from, period }) => {
+            const tradesAggregator = new DexTradesAggregator(convertToStellarAsset(baseAsset), assets.map(a => convertToStellarAsset(a)))
+            const contractData = await db.fetchContractState(encodeContractId(contract))
+            //retrieve previous prices from contract state
+            const parsedContractState = parseStateData(contractData)
+            //fetch and process tx results
+            await db.fetchProcessTxResults(from, from + period, r => tradesAggregator.processTxResult(r))
+            //aggregate prices and merge with previously set prices
+            const prices = tradesAggregator.aggregatePrices(parsedContractState.prices, BigInt(decimals))
+            return {
+                prices,
+                admin: parsedContractState.admin,
+                lastTimestamp: parsedContractState.lastTimestamp
+            }
+        },
+        retrieveAccountProps: async (account) => {
+            const accountProps = await db.fetchAccountProps(account)
+            if (accountProps.signers) {
+                accountProps.signers = parseAccountSigners(accountProps.signers)
+            }
+            return accountProps
+        },
+        close: async () => await db.close()
     }
-}
-
-/**
- * Fetch account properties from the database
- * @param {String} account - Account address
- * @return {Promise<{sequence: BigInt, thresholds: Number[], signers: {address: String, weight: Number}[]}>}
- */
-async function retrieveAccountProps(account) {
-    const accountProps = await db.fetchAccountProps(account)
-    if (accountProps.signers) {
-        accountProps.signers = parseAccountSigners(accountProps.signers)
-    }
-    return accountProps
 }
 
 function convertToStellarAsset(asset) {
@@ -67,4 +88,4 @@ function convertToStellarAsset(asset) {
     }
 }
 
-module.exports = {init, aggregateTrades, retrieveAccountProps}
+module.exports = { init }

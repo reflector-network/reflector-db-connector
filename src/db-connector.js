@@ -13,9 +13,9 @@ class DbConnector {
 
     /**
      * Initialize connection
-     * @param {String} dbConnectionSettings
+     * @param {String|{user: String, database: String, password: String, host: String, [port]: Number}} dbConnectionProperties
      */
-    init(dbConnectionSettings) {
+    constructor(dbConnectionSettings) {
         this.pool = new Pool(dbConnectionSettings)
     }
 
@@ -76,6 +76,14 @@ class DbConnector {
     }
 
     /**
+     * Close connection
+     * @return {Promise<void>}
+     */
+    async close() {
+        await this.pool.end()
+    }
+
+    /**
      * @param {String} contractId - ScAddress-encrypted contract id
      * @return {Promise<String>}
      * @private
@@ -111,4 +119,4 @@ class DbConnector {
  * @property {String} contractEntry
  */
 
-module.exports = new DbConnector()
+module.exports = DbConnector
