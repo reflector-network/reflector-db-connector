@@ -11,7 +11,8 @@
     "url": "git@github.com:reflector-network/reflector-db-connector.git"
   },
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "investigation": "node ./test/zero-price-investigation.test.js"
   },
   "peerDependencies": {
     "stellar-base": "10.0.0-beta.1"
